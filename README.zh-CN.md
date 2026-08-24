@@ -97,8 +97,11 @@ intel_iommu=on iommu=pt i915.enable_gvt=1
 ### 3.2 KVM 忽略未处理 MSR(macOS 必需)
 
 ```sh
+# 旧内核:
 echo 1 | sudo tee /proc/sys/kernel/ignore_msrs
-# 持久化:写入 /etc/rc.local 或 tmpfiles,如 kernel.ignore_msrs = 1
+# 新内核(kvm 模块参数):
+echo 1 | sudo tee /sys/module/kvm/parameters/ignore_msrs
+# 持久化:内核参数 `kvm.ignore_msrs=1`、modprobe.d 配置或 tmpfiles
 ```
 
 ### 3.3 创建 GVT-g mdev
@@ -414,9 +417,42 @@ guestfish --rw -a OpenCore.qcow2 -m /dev/sda1:/ \
 | `iterate.sh <devid> <platid> <tag>` | 改 plist → 换盘 → 重启 → 抓串口(device-id 批量试验) |
 | `patch_plist.py <in> <out> [devid] [platid]` | 生成注入后的 OpenCore `config.plist`(§7) |
 | `su-interact.sh` | 串口交互调试助手(§10) |
+| `setup.sh` | 一键宿主配置与注入自动化(§15) |
 
 `OpenCore.qcow2` / `OVMF_VARS.fd` 仅为本地样本(已 gitignore:大体积二进制、可能含
 主机相关信息)。请按 §7 的 plist 片段自行生成 OpenCore 配置。
+
+---
+
+## 15. 一键自动化:`setup.sh`
+
+`setup.sh` 自动完成宿主侧配置与 OpenCore 注入,与其他脚本共用 `config.env`。
+
+```sh
+./setup.sh check      # 检查 CPU/核显/GVT-g 支持、内核参数、mdev 状态
+./setup.sh all        # check + 创建 mdev + systemd 开机服务 + udev 规则 + XML 片段
+./setup.sh inject     # 将核显 DeviceProperties(§7)注入 $OSX_KVM_DIR/OpenCore/OpenCore.qcow2
+```
+
+子命令:
+
+| 命令 | 作用 | 需要 sudo |
+|---|---|---|
+| `check` | 环境体检(VT-x、核显、`mdev_supported_types`、`ignore_msrs`、mdev 状态) | 否 |
+| `mdev` | 若 mdev(`<MDEV_UUID>`)不存在则创建 | 是 |
+| `boot-service` | 安装并启用 `/etc/systemd/system/setup-gvt.service`(开机建 mdev) | 是 |
+| `udev` | 安装 VFIO udev 规则(`GROUP="kvm", MODE="0660"`) | 是 |
+| `snippet` | 生成 `domain-gvt-snippet.xml`(已填入你的 UUID/MAC),按 §5/§6/§9 并入域 XML | 否 |
+| `inject [devid] [platid]` | 从 OpenCore 盘下载 `config.plist`,套用 `patch_plist.py` 后写回(需先关 VM) | 否 |
+
+全新主机上的典型流程:
+
+```sh
+cp config.env.example config.env && $EDITOR config.env
+./setup.sh all
+./setup.sh inject
+# 然后导入/定义你的 OSX-KVM 域,并把 domain-gvt-snippet.xml 并入域 XML
+```
 
 ---
 

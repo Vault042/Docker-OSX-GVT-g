@@ -100,9 +100,12 @@ intel_iommu=on iommu=pt i915.enable_gvt=1
 ### 3.2 KVM: ignore unhandled MSRs (required by macOS)
 
 ```sh
+# older kernels:
 echo 1 | sudo tee /proc/sys/kernel/ignore_msrs
-# make persistent, e.g. /etc/rc.local or a tmpfiles entry:
-# kernel.ignore_msrs = 1
+# newer kernels (kvm module parameter):
+echo 1 | sudo tee /sys/module/kvm/parameters/ignore_msrs
+# make persistent, e.g. kernel cmdline `kvm.ignore_msrs=1`,
+# a modprobe.d options file, or a tmpfiles entry
 ```
 
 ### 3.3 Create the GVT-g mdev
@@ -426,9 +429,43 @@ Gotchas specific to the container:
 | `iterate.sh <devid> <platid> <tag>` | patch plist → swap disk → reboot → capture serial (device-id experiments) |
 | `patch_plist.py <in> <out> [devid] [platid]` | generate an injected OpenCore `config.plist` (§7) |
 | `su-interact.sh` | serial-console interaction helper for debugging (§10) |
+| `setup.sh` | one-shot host setup & injection automation (§15) |
 
 `OpenCore.qcow2` / `OVMF_VARS.fd` are local-only samples (gitignored: large binaries,
 host-specific data). Recreate the OpenCore config from the plist in §7 instead.
+
+---
+
+## 15. One-shot automation: `setup.sh`
+
+`setup.sh` automates the host-side steps and the OpenCore injection. It reads the same
+`config.env` as the other scripts.
+
+```sh
+./setup.sh check      # verify CPU/iGPU/GVT-g support, kernel cmdline, mdev state
+./setup.sh all        # check + create mdev + systemd boot service + udev rules + XML snippet
+./setup.sh inject     # inject the iGPU DeviceProperties (§7) into $OSX_KVM_DIR/OpenCore/OpenCore.qcow2
+```
+
+Subcommands:
+
+| Command | What it does | Needs sudo |
+|---|---|---|
+| `check` | environment audit (VT-x, iGPU, `mdev_supported_types`, `ignore_msrs`, mdev state) | no |
+| `mdev` | create the mdev instance (`<MDEV_UUID>`) if missing | yes |
+| `boot-service` | install + enable `/etc/systemd/system/setup-gvt.service` (mdev at boot) | yes |
+| `udev` | install VFIO udev rule (`GROUP="kvm", MODE="0660"`) | yes |
+| `snippet` | write `domain-gvt-snippet.xml` with your UUID/MAC filled in (merge into your domain XML per §5/§6/§9) | no |
+| `inject [devid] [platid]` | download `config.plist` from the OpenCore disk, apply `patch_plist.py`, upload it back (VM must be off) | no |
+
+Typical flow on a fresh host:
+
+```sh
+cp config.env.example config.env && $EDITOR config.env
+./setup.sh all
+./setup.sh inject
+# then import/define your OSX-KVM domain and merge domain-gvt-snippet.xml into it
+```
 
 ---
 
