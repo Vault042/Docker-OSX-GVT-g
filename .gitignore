@@ -1,0 +1,10 @@
+# Local configuration (personal paths / UUIDs) — never commit
+config.env
+
+# Backups of originals before parameterization
+*.bak
+
+# Local disk/NVRAM samples (large binaries; may contain host-specific data)
+*.qcow2
+*.img
+OVMF_VARS.fd
